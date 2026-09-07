@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="theme-color" content="#87CEEB" />
+  <title>Flappy Bird 2025</title>
+  <link rel="stylesheet" href="css/style.css" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🐤</text></svg>" />
+</head>
+<body>
+  <div id="game-container">
+    <canvas id="gameCanvas"></canvas>
+
+    <!-- HUD -->
+    <div id="hud">
+      <div id="score-display">0</div>
+      <div id="best-display">BEST <span id="best-score">0</span></div>
+    </div>
+
+    <!-- Start / Tutorial overlay -->
+    <div id="start-screen" class="overlay">
+      <div class="panel">
+        <div class="bird-preview">🐤</div>
+        <h1>Flappy Bird</h1>
+        <p class="subtitle">2025 Edition</p>
+        <p class="instruction">Tap anywhere to flap</p>
+        <button id="start-btn" class="btn primary">PLAY</button>
+        <p class="hint">One-handed • Endless • Addictive</p>
+      </div>
+    </div>
+
+    <!-- Game Over overlay -->
+    <div id="gameover-screen" class="overlay hidden">
+      <div class="panel">
+        <h2>Game Over</h2>
+        <div class="final-score">
+          <span class="label">Score</span>
+          <span id="final-score">0</span>
+        </div>
+        <div class="final-best">
+          <span class="label">Best</span>
+          <span id="final-best">0</span>
+        </div>
+        <button id="restart-btn" class="btn primary">TRY AGAIN</button>
+        <button id="home-btn" class="btn secondary">HOME</button>
+      </div>
+    </div>
+
+    <!-- Pause overlay -->
+    <div id="pause-screen" class="overlay hidden">
+      <div class="panel">
+        <h2>Paused</h2>
+        <button id="resume-btn" class="btn primary">RESUME</button>
+        <button id="pause-home-btn" class="btn secondary">HOME</button>
+      </div>
+    </div>
+
+    <!-- Pause button (visible during play) -->
+    <button id="pause-btn" class="icon-btn hidden" aria-label="Pause">❚❚</button>
+  </div>
+
+  <script src="js/game.js"></script>
+</body>
+</html>
