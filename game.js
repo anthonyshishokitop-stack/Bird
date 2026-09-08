@@ -1,7 +1,6 @@
-/* Chirp — standalone HTML5 arcade game
-   Polished Flappy-style with power-ups, particles, juice & save.
-   Drop this folder on GitHub Pages and open index.html. */
-
+/* Chirp — standalone HTML5 arcade
+   Shield: absorbs one hit, grants invuln, game continues (no freeze).
+   Pause fully stops music. */
 (function () {
   "use strict";
 
@@ -19,10 +18,9 @@
   const SPEED0 = 168;
   const SPEED1 = 330;
   const METER_RATE = 0.085;
-  const SAVE_KEY = "chirp-save-v1";
-  const SAVE_VERSION = 1;
+  const SAVE_KEY = "chirp-save-v2";
+  const SAVE_VERSION = 2;
 
-  // ---------- Helpers ----------
   const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
   const lerp = (a, b, t) => a + (b - a) * t;
   const rand = (a, b) => a + Math.random() * (b - a);
@@ -32,10 +30,7 @@
     const pb = parseInt(b.slice(1), 16);
     const ar = (pa >> 16) & 255, ag = (pa >> 8) & 255, ab = pa & 255;
     const br = (pb >> 16) & 255, bg = (pb >> 8) & 255, bb = pb & 255;
-    const r = Math.round(lerp(ar, br, t));
-    const g = Math.round(lerp(ag, bg, t));
-    const bl = Math.round(lerp(ab, bb, t));
-    return `rgb(${r},${g},${bl})`;
+    return `rgb(${Math.round(lerp(ar, br, t))},${Math.round(lerp(ag, bg, t))},${Math.round(lerp(ab, bb, t))})`;
   }
 
   // ---------- Save ----------
@@ -76,12 +71,14 @@
     } catch { /* private mode */ }
   }
 
-  // ---------- Audio (Web Audio API, procedural) ----------
+  // ---------- Audio ----------
   let bus = null;
   let muted = false;
+  let musicPaused = true;
+  let musicTimer = null;
+  let musicNote = 0;
 
   function ensureAudio() {
-    if (typeof window === "undefined") return null;
     const AC = window.AudioContext || window.webkitAudioContext;
     if (!AC) return null;
     if (!bus) {
@@ -90,7 +87,7 @@
       const sfx = ctx.createGain();
       const music = ctx.createGain();
       sfx.gain.value = 0.7;
-      music.gain.value = 0.18;
+      music.gain.value = 0.16;
       master.gain.value = muted ? 0 : 1;
       sfx.connect(master);
       music.connect(master);
@@ -137,7 +134,7 @@
     const b = ensureAudio();
     if (!b || muted) return;
     const t = b.ctx.currentTime;
-    const buf = b.ctx.createBuffer(1, b.ctx.sampleRate * dur, b.ctx.sampleRate);
+    const buf = b.ctx.createBuffer(1, Math.floor(b.ctx.sampleRate * dur), b.ctx.sampleRate);
     const data = buf.getChannelData(0);
     for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
     const src = b.ctx.createBufferSource();
@@ -153,45 +150,17 @@
     src.stop(t + dur + 0.02);
   }
 
-  function sfxFlap() {
-    tone(520, 0.08, "triangle", 0.18);
-    tone(780, 0.06, "sine", 0.08, 12);
-  }
-  function sfxScore() {
-    tone(660, 0.07, "sine", 0.14);
-    setTimeout(() => tone(990, 0.1, "sine", 0.12), 40);
-  }
-  function sfxCoin() {
-    tone(880, 0.06, "square", 0.1);
-    setTimeout(() => tone(1320, 0.1, "sine", 0.12), 35);
-  }
-  function sfxPower() {
-    tone(320, 0.12, "sawtooth", 0.1);
-    setTimeout(() => tone(540, 0.14, "triangle", 0.12), 50);
-  }
-  function sfxBoost() {
-    tone(180, 0.2, "sawtooth", 0.12);
-    noiseBurst(0.15, 0.1, 800);
-  }
-  function sfxCrash() {
-    noiseBurst(0.28, 0.22, 400);
-    tone(90, 0.25, "sawtooth", 0.15);
-  }
-  function sfxUi() {
-    tone(440, 0.05, "sine", 0.08);
-  }
-
-  let musicPaused = false;
-  let musicTimer = null;
-  let musicNote = 0;
-
-  function startMusic() {
-    stopMusic();
-    musicPaused = false;
-    musicNote = 0;
-    const b = ensureAudio();
-    if (!b || muted) return;
-    scheduleMusicNote();
+  function sfxFlap()  { tone(520, 0.08, "triangle", 0.18); tone(780, 0.06, "sine", 0.08, 12); }
+  function sfxScore() { tone(660, 0.07, "sine", 0.14); setTimeout(() => tone(990, 0.1, "sine", 0.12), 40); }
+  function sfxCoin()  { tone(880, 0.06, "square", 0.1); setTimeout(() => tone(1320, 0.1, "sine", 0.12), 35); }
+  function sfxPower() { tone(320, 0.12, "sawtooth", 0.1); setTimeout(() => tone(540, 0.14, "triangle", 0.12), 50); }
+  function sfxBoost() { tone(180, 0.2, "sawtooth", 0.12); noiseBurst(0.15, 0.1, 800); }
+  function sfxCrash() { noiseBurst(0.28, 0.22, 400); tone(90, 0.25, "sawtooth", 0.15); }
+  function sfxUi()    { tone(440, 0.05, "sine", 0.08); }
+  function sfxShieldBreak() {
+    tone(200, 0.15, "sawtooth", 0.12);
+    noiseBurst(0.12, 0.1, 600);
+    setTimeout(() => tone(400, 0.1, "triangle", 0.1), 40);
   }
 
   function scheduleMusicNote() {
@@ -204,7 +173,7 @@
     o.frequency.value = notes[musicNote % notes.length];
     const g = ctx.createGain();
     g.gain.setValueAtTime(0.0001, t);
-    g.gain.exponentialRampToValueAtTime(0.045, t + 0.04);
+    g.gain.exponentialRampToValueAtTime(0.04, t + 0.04);
     g.gain.exponentialRampToValueAtTime(0.0001, t + 0.55);
     o.connect(g);
     g.connect(bus.music);
@@ -212,6 +181,14 @@
     o.stop(t + 0.6);
     musicNote++;
     musicTimer = setTimeout(scheduleMusicNote, 520);
+  }
+
+  function startMusic() {
+    stopMusic();
+    musicPaused = false;
+    musicNote = 0;
+    if (!ensureAudio() || muted) return;
+    scheduleMusicNote();
   }
 
   function stopMusic() {
@@ -231,11 +208,9 @@
   }
 
   function resumeMusic() {
-    if (muted) return;
-    if (!musicPaused && musicTimer) return;
+    if (muted || !musicPaused) return;
     musicPaused = false;
-    const b = ensureAudio();
-    if (!b) return;
+    if (!ensureAudio()) return;
     if (!musicTimer) scheduleMusicNote();
   }
 
@@ -278,123 +253,6 @@
     ctx.closePath();
   }
 
-  function drawWorld(ctx, world) {
-    const { w, h, t, skyT, scroll, bird, pipes, pickups, particles, pops, clouds, groundY, shakeX, shakeY, flash, boostT, shield, phase, reduced, invuln } = world;
-    ctx.save();
-    ctx.translate(shakeX, shakeY);
-
-    // Sky
-    const pal = skyPalette(skyT);
-    const grd = ctx.createLinearGradient(0, 0, 0, h);
-    grd.addColorStop(0, pal.top);
-    grd.addColorStop(0.45, pal.mid);
-    grd.addColorStop(1, pal.bot);
-    ctx.fillStyle = grd;
-    ctx.fillRect(-20, -20, w + 40, h + 40);
-
-    // Sun / moon
-    const sunY = lerp(h * 0.18, h * 0.55, pal.night);
-    ctx.beginPath();
-    ctx.arc(w * 0.78, sunY, 28 + pal.night * 8, 0, Math.PI * 2);
-    ctx.fillStyle = pal.sun;
-    ctx.globalAlpha = 0.95 - pal.night * 0.25;
-    ctx.fill();
-    ctx.globalAlpha = 1;
-
-    // Stars at night
-    if (pal.night > 0.4) {
-      ctx.globalAlpha = (pal.night - 0.4) * 1.4;
-      for (let i = 0; i < 28; i++) {
-        const sx = ((i * 97 + scroll * 0.05) % (w + 40)) - 20;
-        const sy = 20 + ((i * 53) % (h * 0.4));
-        ctx.fillStyle = "#fff";
-        ctx.beginPath();
-        ctx.arc(sx, sy, 1.2 + (i % 3) * 0.4, 0, Math.PI * 2);
-        ctx.fill();
-      }
-      ctx.globalAlpha = 1;
-    }
-
-    // Clouds
-    for (const c of clouds) {
-      const cx = ((c.x - scroll * c.v) % (w + 160)) - 80;
-      drawCloud(ctx, cx, c.y, c.s, 0.55 + pal.night * 0.15);
-    }
-
-    // Pipes
-    for (const p of pipes) drawPipe(ctx, p, groundY, pal.night);
-
-    // Pickups
-    for (const u of pickups) {
-      if (u.taken) continue;
-      const bob = Math.sin(t * 3.2 + u.bob) * 5;
-      drawPickup(ctx, u.x, u.y + bob, u.kind, t);
-    }
-
-    // Bird — blink while invulnerable after shield break
-    if (bird) {
-      const invulnBlink = invuln > 0 && !shield && phase === "playing";
-      if (!invulnBlink || Math.floor(t * 12) % 2 === 0) {
-        drawBird(ctx, bird, t, boostT > 0, shield, phase === "dead");
-      }
-    }
-
-    // Particles
-    for (const p of particles) {
-      const life = p.life / p.max;
-      ctx.globalAlpha = clamp(life * 1.4, 0, 1);
-      ctx.fillStyle = p.color;
-      if (p.kind === "ring") {
-        ctx.strokeStyle = p.color;
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, p.size * (1.2 - life), 0, Math.PI * 2);
-        ctx.stroke();
-      } else {
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, Math.max(0.5, p.size * life), 0, Math.PI * 2);
-        ctx.fill();
-      }
-      ctx.globalAlpha = 1;
-    }
-
-    // Ground
-    const groundH = h - groundY;
-    ctx.fillStyle = pal.night > 0.5 ? "#2d3a28" : "#6b9e4e";
-    ctx.fillRect(-10, groundY, w + 20, groundH + 20);
-    // Grass strip
-    ctx.fillStyle = pal.night > 0.5 ? "#3d5234" : "#8bc34a";
-    ctx.fillRect(-10, groundY, w + 20, 14);
-    // Dirt detail
-    ctx.fillStyle = pal.night > 0.5 ? "#24301f" : "#5a7d3c";
-    for (let i = 0; i < 12; i++) {
-      const gx = ((i * 73 - scroll * 0.4) % (w + 40)) - 20;
-      ctx.fillRect(gx, groundY + 18, 18, 6);
-    }
-
-    // Score pops
-    for (const p of pops) {
-      const life = p.life / p.max;
-      ctx.globalAlpha = clamp(life * 1.6, 0, 1);
-      ctx.font = `bold ${18 + (1 - life) * 8}px system-ui,sans-serif`;
-      ctx.textAlign = "center";
-      ctx.fillStyle = "#fff";
-      ctx.strokeStyle = "rgba(0,0,0,0.35)";
-      ctx.lineWidth = 3;
-      ctx.strokeText(p.text, p.x, p.y - (1 - life) * 28);
-      ctx.fillText(p.text, p.x, p.y - (1 - life) * 28);
-      ctx.globalAlpha = 1;
-    }
-
-    // Flash
-    if (flash > 0) {
-      ctx.fillStyle = `rgba(255,255,255,${flash * 0.55})`;
-      ctx.fillRect(-20, -20, w + 40, h + 40);
-    }
-
-    ctx.restore();
-  }
-
   function drawCloud(ctx, x, y, s, alpha) {
     ctx.globalAlpha = alpha;
     ctx.fillStyle = "#fff";
@@ -414,7 +272,6 @@
     const gapTop = p.gapY - p.gap / 2;
     const gapBot = p.gapY + p.gap / 2;
 
-    // Top pipe
     ctx.fillStyle = body;
     ctx.fillRect(p.x, 0, p.w, gapTop - 18);
     ctx.fillStyle = lip;
@@ -424,7 +281,6 @@
     ctx.lineWidth = 2;
     ctx.stroke();
 
-    // Bottom pipe
     ctx.fillStyle = body;
     ctx.fillRect(p.x, gapBot + 18, p.w, groundY - gapBot - 18);
     ctx.fillStyle = lip;
@@ -452,7 +308,7 @@
       ctx.textBaseline = "middle";
       ctx.fillText("$", 0, 1);
     } else if (kind === "shield") {
-      ctx.fillStyle = "#8ec5ff";
+      ctx.fillStyle = "#7dd3fc";
       ctx.beginPath();
       ctx.moveTo(0, -12);
       ctx.lineTo(11, -4);
@@ -477,7 +333,6 @@
       ctx.closePath();
       ctx.fill();
     } else {
-      // wing
       ctx.fillStyle = "#fde68a";
       ctx.beginPath();
       ctx.ellipse(0, 0, 13, 7, -0.4, 0, Math.PI * 2);
@@ -497,16 +352,19 @@
     const sy = 2 - bird.squash;
     ctx.scale(sx, sy);
 
-    // Shield aura
     if (hasShield && !dead) {
-      ctx.strokeStyle = "rgba(142,197,255,0.7)";
+      ctx.strokeStyle = "rgba(125,211,252,0.75)";
       ctx.lineWidth = 3;
       ctx.beginPath();
       ctx.arc(0, 0, 24 + Math.sin(t * 6) * 2, 0, Math.PI * 2);
       ctx.stroke();
+      ctx.strokeStyle = "rgba(125,211,252,0.3)";
+      ctx.lineWidth = 6;
+      ctx.beginPath();
+      ctx.arc(0, 0, 26, 0, Math.PI * 2);
+      ctx.stroke();
     }
 
-    // Boost trail
     if (boosting && !dead) {
       ctx.fillStyle = "rgba(255,210,74,0.35)";
       ctx.beginPath();
@@ -514,19 +372,16 @@
       ctx.fill();
     }
 
-    // Body
     ctx.fillStyle = dead ? "#94a3b8" : "#fbbf24";
     ctx.beginPath();
     ctx.ellipse(0, 0, 16, 13, 0, 0, Math.PI * 2);
     ctx.fill();
 
-    // Belly
     ctx.fillStyle = dead ? "#cbd5e1" : "#fef3c7";
     ctx.beginPath();
     ctx.ellipse(3, 4, 9, 7, 0, 0, Math.PI * 2);
     ctx.fill();
 
-    // Wing
     const wingAng = -0.4 + bird.wing * 1.1;
     ctx.save();
     ctx.translate(-4, 2);
@@ -537,7 +392,6 @@
     ctx.fill();
     ctx.restore();
 
-    // Beak
     ctx.fillStyle = "#f97316";
     ctx.beginPath();
     ctx.moveTo(14, -2);
@@ -546,7 +400,6 @@
     ctx.closePath();
     ctx.fill();
 
-    // Eye
     ctx.fillStyle = "#fff";
     ctx.beginPath();
     ctx.arc(7, -5, 5, 0, Math.PI * 2);
@@ -556,7 +409,6 @@
     ctx.arc(8.5, -5, 2.4, 0, Math.PI * 2);
     ctx.fill();
 
-    // Cheek
     if (!dead) {
       ctx.fillStyle = "rgba(251,113,133,0.45)";
       ctx.beginPath();
@@ -567,7 +419,116 @@
     ctx.restore();
   }
 
-  // ---------- Game class ----------
+  function drawWorld(ctx, world) {
+    const {
+      w, h, t, skyT, scroll, bird, pipes, pickups, particles, pops, clouds,
+      groundY, shakeX, shakeY, flash, boostT, shield, phase, reduced, invuln,
+    } = world;
+
+    ctx.save();
+    ctx.translate(shakeX, shakeY);
+
+    const pal = skyPalette(skyT);
+    const grd = ctx.createLinearGradient(0, 0, 0, h);
+    grd.addColorStop(0, pal.top);
+    grd.addColorStop(0.45, pal.mid);
+    grd.addColorStop(1, pal.bot);
+    ctx.fillStyle = grd;
+    ctx.fillRect(-20, -20, w + 40, h + 40);
+
+    const sunY = lerp(h * 0.18, h * 0.55, pal.night);
+    ctx.beginPath();
+    ctx.arc(w * 0.78, sunY, 28 + pal.night * 8, 0, Math.PI * 2);
+    ctx.fillStyle = pal.sun;
+    ctx.globalAlpha = 0.95 - pal.night * 0.25;
+    ctx.fill();
+    ctx.globalAlpha = 1;
+
+    if (pal.night > 0.4) {
+      ctx.globalAlpha = (pal.night - 0.4) * 1.4;
+      for (let i = 0; i < 28; i++) {
+        const sx = ((i * 97 + scroll * 0.05) % (w + 40)) - 20;
+        const sy = 20 + ((i * 53) % (h * 0.4));
+        ctx.fillStyle = "#fff";
+        ctx.beginPath();
+        ctx.arc(sx, sy, 1.2 + (i % 3) * 0.4, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+    }
+
+    for (const c of clouds) {
+      const cx = ((c.x - scroll * c.v) % (w + 160)) - 80;
+      drawCloud(ctx, cx, c.y, c.s, 0.55 + pal.night * 0.15);
+    }
+
+    for (const p of pipes) drawPipe(ctx, p, groundY, pal.night);
+
+    for (const u of pickups) {
+      if (u.taken) continue;
+      const bob = Math.sin(t * 3.2 + u.bob) * 5;
+      drawPickup(ctx, u.x, u.y + bob, u.kind, t);
+    }
+
+    // Bird — blink while invulnerable (after shield break)
+    if (bird) {
+      const blink = invuln > 0 && !shield && phase === "playing";
+      if (!blink || Math.floor(t * 14) % 2 === 0) {
+        drawBird(ctx, bird, t, boostT > 0, shield, phase === "dead");
+      }
+    }
+
+    for (const p of particles) {
+      const life = p.life / p.max;
+      ctx.globalAlpha = clamp(life * 1.4, 0, 1);
+      ctx.fillStyle = p.color;
+      if (p.kind === "ring") {
+        ctx.strokeStyle = p.color;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.size * (1.2 - life), 0, Math.PI * 2);
+        ctx.stroke();
+      } else {
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, Math.max(0.5, p.size * life), 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+    }
+
+    const groundH = h - groundY;
+    ctx.fillStyle = pal.night > 0.5 ? "#2d3a28" : "#6b9e4e";
+    ctx.fillRect(-10, groundY, w + 20, groundH + 20);
+    ctx.fillStyle = pal.night > 0.5 ? "#3d5234" : "#8bc34a";
+    ctx.fillRect(-10, groundY, w + 20, 14);
+    ctx.fillStyle = pal.night > 0.5 ? "#24301f" : "#5a7d3c";
+    for (let i = 0; i < 12; i++) {
+      const gx = ((i * 73 - scroll * 0.4) % (w + 40)) - 20;
+      ctx.fillRect(gx, groundY + 18, 18, 6);
+    }
+
+    for (const p of pops) {
+      const life = p.life / p.max;
+      ctx.globalAlpha = clamp(life * 1.6, 0, 1);
+      ctx.font = `bold ${18 + (1 - life) * 8}px system-ui,sans-serif`;
+      ctx.textAlign = "center";
+      ctx.fillStyle = "#fff";
+      ctx.strokeStyle = "rgba(0,0,0,0.35)";
+      ctx.lineWidth = 3;
+      ctx.strokeText(p.text, p.x, p.y - (1 - life) * 28);
+      ctx.fillText(p.text, p.x, p.y - (1 - life) * 28);
+      ctx.globalAlpha = 1;
+    }
+
+    if (flash > 0) {
+      ctx.fillStyle = `rgba(255,255,255,${flash * 0.55})`;
+      ctx.fillRect(-20, -20, w + 40, h + 40);
+    }
+
+    ctx.restore();
+  }
+
+  // ---------- Game ----------
   class ChirpGame {
     constructor(canvas, onHud) {
       this.canvas = canvas;
@@ -706,10 +667,7 @@
       setMuted(this.save.muted);
       if (!this.save.muted) {
         unlockAudio();
-        // Only resume music if actively playing (not paused/menu/dead)
-        if (this.phase === "playing" || this.phase === "ready") {
-          startMusic();
-        }
+        if (this.phase === "playing" || this.phase === "ready") startMusic();
         sfxUi();
       } else {
         stopMusic();
@@ -755,10 +713,6 @@
       }
       if (this.phase !== "playing") return;
 
-      // Extra wing flaps
-      if (this.wings > 0 && this.bird.vy > -100) {
-        // still allow normal flap
-      }
       this.bird.vy = FLAP_V;
       this.bird.wing = 1;
       this.bird.squash = 1.18;
@@ -766,19 +720,6 @@
       sfxFlap();
       this.buzz(12);
       this.burst(this.bird.x - 8, this.bird.y + 8, 8, "puff", "#fff6d0");
-      this.hudDirty = true;
-      this.emitHud();
-    }
-
-    // Use wing power (double-tap style is just extra flaps stored)
-    useWing() {
-      if (this.wings <= 0 || this.phase !== "playing") return;
-      this.wings--;
-      this.bird.vy = FLAP_V * 1.15;
-      this.bird.wing = 1;
-      this.invuln = Math.max(this.invuln, 0.35);
-      sfxPower();
-      this.burst(this.bird.x, this.bird.y, 10, "feather", "#ffe27a");
       this.hudDirty = true;
       this.emitHud();
     }
@@ -794,6 +735,7 @@
         wings: this.wings,
         boostT: this.boostT,
         meter: this.meter,
+        invuln: this.invuln,
         newBest: this.newBest,
         showHint: this.hintUntilFlap && (this.phase === "ready" || this.phase === "playing"),
         muted: this.save.muted,
@@ -807,21 +749,16 @@
       this.onHud(this.snapshot());
     }
 
-    persist() {
-      writeSave(this.save);
-    }
+    persist() { writeSave(this.save); }
 
     buzz(ms) {
       if (!this.save.haptics) return;
-      try {
-        if (navigator.vibrate) navigator.vibrate(ms);
-      } catch { /* ignore */ }
+      try { if (navigator.vibrate) navigator.vibrate(ms); } catch { /* */ }
     }
 
     bind() {
       const onPointer = (e) => {
-        const t = e.target;
-        if (t && t.closest && t.closest("[data-ui]")) return;
+        if (e.target && e.target.closest && e.target.closest("[data-ui]")) return;
         e.preventDefault();
         this.flap();
       };
@@ -836,8 +773,6 @@
           else if (this.phase === "paused") this.resume();
         } else if (e.code === "KeyM") {
           this.toggleMute();
-        } else if (e.code === "KeyF" || e.code === "ShiftLeft") {
-          this.useWing();
         }
       };
       const onVis = () => {
@@ -893,23 +828,15 @@
       }));
     }
 
-    difficulty() {
-      return clamp(this.score / 42, 0, 1);
-    }
+    difficulty() { return clamp(this.score / 42, 0, 1); }
 
     speed() {
       const d = this.difficulty();
-      const ease = d * d * (3 - 2 * d);
-      return lerp(SPEED0, SPEED1, ease);
+      return lerp(SPEED0, SPEED1, d * d * (3 - 2 * d));
     }
 
-    gapSize() {
-      return lerp(PIPE_GAP0, PIPE_GAP1, this.difficulty());
-    }
-
-    spacing() {
-      return PIPE_SPACE0 + this.speed() * 0.12;
-    }
+    gapSize() { return lerp(PIPE_GAP0, PIPE_GAP1, this.difficulty()); }
+    spacing() { return PIPE_SPACE0 + this.speed() * 0.12; }
 
     resetWorld(menu) {
       this.score = 0;
@@ -962,9 +889,9 @@
       const roll = Math.random();
       let kind = null;
       if (roll < 0.42) kind = "coin";
-      else if (roll < 0.5) kind = "shield";
-      else if (roll < 0.56) kind = "boost";
-      else if (roll < 0.64) kind = "wing";
+      else if (roll < 0.52) kind = "shield";
+      else if (roll < 0.58) kind = "boost";
+      else if (roll < 0.66) kind = "wing";
       if (kind) {
         this.pickups.push({
           x: x + PIPE_W / 2,
@@ -982,7 +909,7 @@
       if (this.flash > 0) this.flash = Math.max(0, this.flash - dt * 3.2);
       if (this.trauma > 0) this.trauma = Math.max(0, this.trauma - dt * 2.4);
       if (this.deathLock > 0) this.deathLock -= dt;
-      if (this.invuln > 0) this.invuln -= dt;
+      if (this.invuln > 0) this.invuln = Math.max(0, this.invuln - dt);
       if (this.boostT > 0) this.boostT = Math.max(0, this.boostT - dt);
 
       const moving =
@@ -990,14 +917,12 @@
 
       if (moving) {
         this.scroll += this.speed() * dt * (this.phase === "menu" ? 0.35 : 1);
-        // Clouds drift
         for (const c of this.clouds) {
           c.x -= c.v * this.speed() * dt * 0.3;
           if (c.x < -100) c.x = this.w + 80;
         }
       }
 
-      // Bird physics
       if (this.phase === "playing") {
         const grav = this.boostT > 0 ? GRAVITY * 0.55 : GRAVITY;
         this.bird.vy = Math.min(MAX_FALL, this.bird.vy + grav * dt);
@@ -1006,11 +931,16 @@
         this.bird.wing = Math.max(0, this.bird.wing - dt * 3.2);
         this.bird.squash = lerp(this.bird.squash, 1, 1 - Math.exp(-10 * dt));
 
+        // Soft ceiling
+        if (this.bird.y - BIRD_R < 40) {
+          this.bird.y = 40 + BIRD_R;
+          if (this.bird.vy < 0) this.bird.vy = 0;
+        }
+
         this.advancePipes(dt);
         this.collectPickups();
         this.collide();
       } else if (this.phase === "menu" || this.phase === "ready") {
-        // Idle float
         this.bird.y = this.h * 0.42 + Math.sin(this.t * 2.2) * 10;
         this.bird.rot = Math.sin(this.t * 2.2) * 0.12;
         this.bird.wing = 0.4 + Math.sin(this.t * 8) * 0.35;
@@ -1079,7 +1009,7 @@
         this.shield = true;
         sfxPower();
         this.pop(x, y, "SHIELD");
-        this.burst(x, y, 14, "ring", "#8ec5ff");
+        this.burst(x, y, 14, "ring", "#7dd3fc");
       } else if (kind === "boost") {
         this.boostT = 2.2;
         this.invuln = Math.max(this.invuln, 2.2);
@@ -1097,71 +1027,74 @@
       this.buzz(18);
     }
 
+    /**
+     * KEY FIX: During invuln, skip all lethal collision checks.
+     * Only soft-clamp the ground so the bird never falls through the world.
+     * Shield break grants invuln and a bounce — game continues.
+     */
     collide() {
       const b = this.bird;
-      // Ceiling clamp
-      if (b.y - BIRD_R < 40) {
-        b.y = 40 + BIRD_R;
-        if (b.vy < 0) b.vy = 0;
+
+      // Soft ground clamp always (prevents falling through floor)
+      if (b.y + BIRD_R > this.groundY) {
+        b.y = this.groundY - BIRD_R;
+        if (b.vy > 0) b.vy = 0;
       }
 
-      // Ground
-      if (b.y + BIRD_R > this.groundY) {
-        if (this.invuln > 0) {
-          // Still invulnerable — keep bird above ground
-          b.y = this.groundY - BIRD_R - 1;
-          if (b.vy > 0) b.vy = FLAP_V * 0.55;
-          return;
-        }
-        this.tryDie("ground");
+      // Fully invulnerable? Skip lethal checks.
+      if (this.invuln > 0) return;
+
+      // Ground death
+      if (b.y + BIRD_R >= this.groundY - 0.5) {
+        this.handleHit("ground");
         return;
       }
 
-      // Pipes
+      // Pipe death
       for (const p of this.pipes) {
         if (b.x + BIRD_R < p.x || b.x - BIRD_R > p.x + p.w) continue;
         const top = p.gapY - p.gap / 2;
         const bot = p.gapY + p.gap / 2;
         if (b.y - BIRD_R < top || b.y + BIRD_R > bot) {
-          if (this.invuln > 0) {
-            // Push bird into the gap center while invulnerable
-            b.y = p.gapY;
-            if (b.vy > 120) b.vy = 0;
-            return;
-          }
-          this.tryDie("pipe", p);
+          this.handleHit("pipe", p);
           return;
         }
       }
     }
 
-    tryDie(reason, pipe) {
+    handleHit(reason, pipe) {
+      // Already invulnerable — should not reach here, but safety
       if (this.invuln > 0) return;
-      if (this.shield) {
-        // Absorb hit — break shield, grant invuln, eject from hazard
-        this.shield = false;
-        this.invuln = 1.25;
-        this.flash = 0.55;
-        this.trauma = 0.45;
-        sfxPower();
-        this.burst(this.bird.x, this.bird.y, 18, "ring", "#8ec5ff");
-        this.buzz(25);
 
+      if (this.shield) {
+        // === SHIELD ABSORBS HIT — GAME CONTINUES ===
+        this.shield = false;
+        this.invuln = 1.5;          // 1.5s of true invulnerability
+        this.flash = 0.6;
+        this.trauma = 0.5;
+        sfxShieldBreak();
+        this.burst(this.bird.x, this.bird.y, 20, "ring", "#7dd3fc");
+        this.burst(this.bird.x, this.bird.y, 10, "spark", "#fff");
+        this.buzz(30);
+
+        // Bounce the bird free
         if (reason === "ground") {
-          this.bird.y = this.groundY - BIRD_R - 2;
-          this.bird.vy = FLAP_V * 0.65;
+          this.bird.y = this.groundY - BIRD_R - 4;
+          this.bird.vy = FLAP_V * 0.7;
         } else if (reason === "pipe" && pipe) {
-          // Nudge into the safe gap
+          // Move toward gap center and give upward kick
           this.bird.y = pipe.gapY;
-          this.bird.vy = Math.min(this.bird.vy, 40);
+          this.bird.vy = FLAP_V * 0.55;
         } else {
           this.bird.vy = FLAP_V * 0.5;
         }
 
         this.hudDirty = true;
         this.emitHud();
-        return;
+        return; // KEEP PLAYING
       }
+
+      // No shield → die
       this.die();
     }
 
@@ -1170,7 +1103,7 @@
       this.phase = "dead";
       this.bird.alive = false;
       this.bird.vy = -180;
-      this.deathLock = 0.7;
+      this.deathLock = 0.75;
       this.flash = 0.85;
       this.trauma = 0.9;
       this.hitstop = 0.08;
@@ -1259,7 +1192,7 @@
     }
   }
 
-  // ---------- UI wiring ----------
+  // ---------- UI ----------
   const canvas = document.getElementById("c");
   const $ = (id) => document.getElementById(id);
 
@@ -1287,10 +1220,8 @@
   };
 
   let game = null;
-  let lastHud = null;
 
   function onHud(hud) {
-    lastHud = hud;
     const playing = hud.phase === "playing" || hud.phase === "ready";
     const showMenu = hud.phase === "menu";
     const showPause = hud.phase === "paused";
@@ -1312,26 +1243,23 @@
     els.newBestBadge.classList.toggle("hidden", !hud.newBest);
     els.meterFill.style.width = Math.round(hud.meter * 100) + "%";
 
-    // Power pills
     let pills = "";
     if (hud.shield) pills += `<span class="pill shield">🛡 Shield</span>`;
+    if (hud.invuln > 0 && !hud.shield) pills += `<span class="pill invuln">✨ Safe</span>`;
     if (hud.boostT > 0) pills += `<span class="pill boost">⚡ Boost</span>`;
     if (hud.wings > 0) pills += `<span class="pill wing">🪶 ×${hud.wings}</span>`;
     if (hud.runCoins > 0) pills += `<span class="pill coins">🪙 ${hud.runCoins}</span>`;
     els.powerRow.innerHTML = pills;
 
-    // Mute icon
     els.muteIcon.innerHTML = hud.muted
       ? `<path d="M11 5 6 9H2v6h4l5 4V5z"/><line x1="23" y1="9" x2="17" y2="15" stroke="currentColor" stroke-width="2"/><line x1="17" y1="9" x2="23" y2="15" stroke="currentColor" stroke-width="2"/>`
       : `<path d="M11 5 6 9H2v6h4l5 4V5zm7.07 2.93a8 8 0 0 1 0 8.14"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/>`;
 
-    // Toggles
     els.togMute.classList.toggle("on", !hud.muted);
     els.togHaptics.classList.toggle("on", hud.haptics);
     els.togShake.classList.toggle("on", hud.shake);
   }
 
-  // Buttons
   $("btnPlay").addEventListener("click", () => game && game.playFromMenu());
   $("btnResume").addEventListener("click", () => game && game.resume());
   $("btnRetry").addEventListener("click", () => game && game.retry());
@@ -1339,26 +1267,15 @@
   $("btnHomeFromDead").addEventListener("click", () => game && game.home());
   $("btnPause").addEventListener("click", () => game && game.pause());
   $("btnMute").addEventListener("click", () => game && game.toggleMute());
-  $("btnSettings").addEventListener("click", () => {
-    els.settings.classList.remove("hidden");
-  });
-  $("btnCloseSettings").addEventListener("click", () => {
-    els.settings.classList.add("hidden");
-  });
+  $("btnSettings").addEventListener("click", () => els.settings.classList.remove("hidden"));
+  $("btnCloseSettings").addEventListener("click", () => els.settings.classList.add("hidden"));
   els.settings.addEventListener("click", (e) => {
     if (e.target === els.settings) els.settings.classList.add("hidden");
   });
-
   els.togMute.addEventListener("click", () => game && game.toggleMute());
   els.togHaptics.addEventListener("click", () => game && game.toggleHaptics());
   els.togShake.addEventListener("click", () => game && game.toggleShake());
 
-  // Mark UI elements so canvas pointer ignores them
-  document.querySelectorAll("button, .panel, .settings").forEach((el) => {
-    el.setAttribute("data-ui", "1");
-  });
-
-  // Boot
   game = new ChirpGame(canvas, onHud);
   game.start();
   window.__chirp = game;
