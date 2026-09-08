@@ -249,11 +249,16 @@ class Game{
     if(this.running)return;this.running=true;this.last=performance.now();
     const loop=now=>{
       if(!this.running)return;
-      let dt=(now-this.last)/1000;this.last=now;
-      if(dt>.25)dt=.25;if(dt<0)dt=0;
-      this.acc+=dt;if(this.acc>MAX_ACC)this.acc=MAX_ACC;
-      while(this.acc>=STEP){this.step(STEP);this.acc-=STEP}
-      this.render();
+      try{
+        let dt=(now-this.last)/1000;this.last=now;
+        if(dt>.25)dt=.25;if(dt<0)dt=0;
+        this.acc+=dt;if(this.acc>MAX_ACC)this.acc=MAX_ACC;
+        while(this.acc>=STEP){this.step(STEP);this.acc-=STEP}
+        this.render();
+      }catch(err){
+        console.error("Chirp frame error:",err);
+        // keep looping no matter what
+      }
       this.raf=requestAnimationFrame(loop);
     };
     this.raf=requestAnimationFrame(loop);
@@ -385,15 +390,15 @@ class Game{
       // Ceiling
       if(this.bird.y-BIRD_R<40){this.bird.y=40+BIRD_R;if(this.bird.vy<0)this.bird.vy=0}
 
-      // Soft ground (never fall through world)
+      this.advancePipes(dt);
+      this.collectPickups();
+      this.checkHits();
+
+      // Soft ground AFTER hits — only pin to floor if still overlapping and not bouncing
       if(this.bird.y+BIRD_R>this.groundY){
         this.bird.y=this.groundY-BIRD_R;
         if(this.bird.vy>0)this.bird.vy=0;
       }
-
-      this.advancePipes(dt);
-      this.collectPickups();
-      this.checkHits(); // may break shield or kill — never freezes
     } else if(this.phase==="menu"||this.phase==="ready"){
       this.bird.y=this.h*.42+Math.sin(this.t*2.2)*10;
       this.bird.rot=Math.sin(this.t*2.2)*.12;
@@ -480,27 +485,29 @@ class Game{
     if(this.invuln>0)return;
 
     if(this.shield){
-      // Shield absorbs — game CONTINUES
+      // Shield absorbs ONE hit — game MUST continue
       this.shield=false;
-      this.invuln=1.6; // 1.6s true invulnerability
+      this.invuln=1.8;
       this.flash=.65;
       this.trauma=.55;
-      sfxShieldBreak();
-      this.burst(this.bird.x,this.bird.y,22,"ring","#7dd3fc");
-      this.burst(this.bird.x,this.bird.y,12,"spark","#fff");
+      this.phase="playing"; // force continue even if something else paused
+      try{sfxShieldBreak()}catch(e){}
+      try{
+        this.burst(this.bird.x,this.bird.y,22,"ring","#7dd3fc");
+        this.burst(this.bird.x,this.bird.y,12,"spark","#fff");
+      }catch(e){}
       this.buzz(30);
 
-      // Bounce free so player feels the save
       if(reason==="ground"){
-        this.bird.y=this.groundY-BIRD_R-6;
-        this.bird.vy=FLAP_V*.75;
+        this.bird.y=this.groundY-BIRD_R-8;
+        this.bird.vy=FLAP_V*.8;
       } else if(reason==="pipe"&&pipe){
+        // push into gap center and bounce up
         this.bird.y=pipe.gapY;
-        this.bird.vy=FLAP_V*.6;
+        this.bird.vy=FLAP_V*.65;
       } else {
-        this.bird.vy=FLAP_V*.5;
+        this.bird.vy=FLAP_V*.55;
       }
-      // phase stays "playing" — do NOT touch this.phase
       this.hudDirty=true;
       this.emitHud();
       return;
