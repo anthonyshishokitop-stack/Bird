@@ -79,7 +79,6 @@
   // ---------- Audio (Web Audio API, procedural) ----------
   let bus = null;
   let muted = false;
-  let padStop = null;
 
   function ensureAudio() {
     if (typeof window === "undefined") return null;
@@ -182,40 +181,62 @@
     tone(440, 0.05, "sine", 0.08);
   }
 
+  let musicPaused = false;
+  let musicTimer = null;
+  let musicNote = 0;
+
   function startMusic() {
     stopMusic();
+    musicPaused = false;
+    musicNote = 0;
     const b = ensureAudio();
     if (!b || muted) return;
-    const ctx = b.ctx;
+    scheduleMusicNote();
+  }
+
+  function scheduleMusicNote() {
+    if (musicPaused || muted || !bus) return;
+    const ctx = bus.ctx;
     const notes = [262, 330, 392, 523, 392, 330];
-    let i = 0;
-    let stopped = false;
-    function tick() {
-      if (stopped || muted) return;
-      const t = ctx.currentTime;
-      const o = ctx.createOscillator();
-      o.type = "triangle";
-      o.frequency.value = notes[i % notes.length];
-      const g = ctx.createGain();
-      g.gain.setValueAtTime(0.0001, t);
-      g.gain.exponentialRampToValueAtTime(0.045, t + 0.04);
-      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.55);
-      o.connect(g);
-      g.connect(b.music);
-      o.start(t);
-      o.stop(t + 0.6);
-      i++;
-      padStop = { stop: () => { stopped = true; } };
-      setTimeout(tick, 520);
-    }
-    tick();
+    const t = ctx.currentTime;
+    const o = ctx.createOscillator();
+    o.type = "triangle";
+    o.frequency.value = notes[musicNote % notes.length];
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.045, t + 0.04);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.55);
+    o.connect(g);
+    g.connect(bus.music);
+    o.start(t);
+    o.stop(t + 0.6);
+    musicNote++;
+    musicTimer = setTimeout(scheduleMusicNote, 520);
   }
 
   function stopMusic() {
-    if (padStop) {
-      padStop.stop();
-      padStop = null;
+    musicPaused = true;
+    if (musicTimer) {
+      clearTimeout(musicTimer);
+      musicTimer = null;
     }
+  }
+
+  function pauseMusic() {
+    musicPaused = true;
+    if (musicTimer) {
+      clearTimeout(musicTimer);
+      musicTimer = null;
+    }
+  }
+
+  function resumeMusic() {
+    if (muted) return;
+    if (!musicPaused && musicTimer) return;
+    musicPaused = false;
+    const b = ensureAudio();
+    if (!b) return;
+    if (!musicTimer) scheduleMusicNote();
   }
 
   function resumeAudio() {
@@ -258,7 +279,7 @@
   }
 
   function drawWorld(ctx, world) {
-    const { w, h, t, skyT, scroll, bird, pipes, pickups, particles, pops, clouds, groundY, shakeX, shakeY, flash, boostT, shield, phase, reduced } = world;
+    const { w, h, t, skyT, scroll, bird, pipes, pickups, particles, pops, clouds, groundY, shakeX, shakeY, flash, boostT, shield, phase, reduced, invuln } = world;
     ctx.save();
     ctx.translate(shakeX, shakeY);
 
@@ -310,8 +331,13 @@
       drawPickup(ctx, u.x, u.y + bob, u.kind, t);
     }
 
-    // Bird
-    if (bird) drawBird(ctx, bird, t, boostT > 0, shield, phase === "dead");
+    // Bird — blink while invulnerable after shield break
+    if (bird) {
+      const invulnBlink = invuln > 0 && !shield && phase === "playing";
+      if (!invulnBlink || Math.floor(t * 12) % 2 === 0) {
+        drawBird(ctx, bird, t, boostT > 0, shield, phase === "dead");
+      }
+    }
 
     // Particles
     for (const p of particles) {
@@ -639,6 +665,7 @@
     pause() {
       if (this.phase !== "playing" && this.phase !== "ready") return;
       this.phase = "paused";
+      pauseMusic();
       sfxUi();
       this.hudDirty = true;
       this.emitHud();
@@ -647,14 +674,16 @@
     resume() {
       if (this.phase !== "paused") return;
       this.phase = "playing";
-      sfxUi();
       resumeAudio();
+      resumeMusic();
+      sfxUi();
       this.hudDirty = true;
       this.emitHud();
     }
 
     home() {
       sfxUi();
+      stopMusic();
       this.resetWorld(true);
       this.phase = "menu";
       this.hudDirty = true;
@@ -677,7 +706,10 @@
       setMuted(this.save.muted);
       if (!this.save.muted) {
         unlockAudio();
-        startMusic();
+        // Only resume music if actively playing (not paused/menu/dead)
+        if (this.phase === "playing" || this.phase === "ready") {
+          startMusic();
+        }
         sfxUi();
       } else {
         stopMusic();
@@ -1067,37 +1099,67 @@
 
     collide() {
       const b = this.bird;
-      if (b.y + BIRD_R > this.groundY) {
-        this.tryDie("ground");
-        return;
-      }
+      // Ceiling clamp
       if (b.y - BIRD_R < 40) {
         b.y = 40 + BIRD_R;
         if (b.vy < 0) b.vy = 0;
       }
 
+      // Ground
+      if (b.y + BIRD_R > this.groundY) {
+        if (this.invuln > 0) {
+          // Still invulnerable — keep bird above ground
+          b.y = this.groundY - BIRD_R - 1;
+          if (b.vy > 0) b.vy = FLAP_V * 0.55;
+          return;
+        }
+        this.tryDie("ground");
+        return;
+      }
+
+      // Pipes
       for (const p of this.pipes) {
         if (b.x + BIRD_R < p.x || b.x - BIRD_R > p.x + p.w) continue;
         const top = p.gapY - p.gap / 2;
         const bot = p.gapY + p.gap / 2;
         if (b.y - BIRD_R < top || b.y + BIRD_R > bot) {
-          this.tryDie("pipe");
+          if (this.invuln > 0) {
+            // Push bird into the gap center while invulnerable
+            b.y = p.gapY;
+            if (b.vy > 120) b.vy = 0;
+            return;
+          }
+          this.tryDie("pipe", p);
           return;
         }
       }
     }
 
-    tryDie(reason) {
+    tryDie(reason, pipe) {
       if (this.invuln > 0) return;
       if (this.shield) {
+        // Absorb hit — break shield, grant invuln, eject from hazard
         this.shield = false;
-        this.invuln = 1.1;
-        this.flash = 0.5;
-        this.trauma = 0.4;
+        this.invuln = 1.25;
+        this.flash = 0.55;
+        this.trauma = 0.45;
         sfxPower();
         this.burst(this.bird.x, this.bird.y, 18, "ring", "#8ec5ff");
         this.buzz(25);
+
+        if (reason === "ground") {
+          this.bird.y = this.groundY - BIRD_R - 2;
+          this.bird.vy = FLAP_V * 0.65;
+        } else if (reason === "pipe" && pipe) {
+          // Nudge into the safe gap
+          this.bird.y = pipe.gapY;
+          this.bird.vy = Math.min(this.bird.vy, 40);
+        } else {
+          this.bird.vy = FLAP_V * 0.5;
+        }
+
         this.hudDirty = true;
+        this.emitHud();
         return;
       }
       this.die();
@@ -1108,10 +1170,11 @@
       this.phase = "dead";
       this.bird.alive = false;
       this.bird.vy = -180;
-      this.deathLock = 0.55;
+      this.deathLock = 0.7;
       this.flash = 0.85;
       this.trauma = 0.9;
       this.hitstop = 0.08;
+      stopMusic();
       sfxCrash();
       this.buzz(40);
       this.burst(this.bird.x, this.bird.y, 22, "feather", "#fbbf24");
@@ -1189,6 +1252,7 @@
         flash: this.flash,
         boostT: this.boostT,
         shield: this.shield,
+        invuln: this.invuln,
         phase: this.phase,
         reduced: this.reduced,
       });
