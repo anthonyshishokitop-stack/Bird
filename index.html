@@ -2,66 +2,442 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <meta name="theme-color" content="#7ec8ff" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
-  <meta name="mobile-web-app-capable" content="yes" />
-  <meta name="theme-color" content="#87CEEB" />
-  <title>Flappy Bird 2025</title>
-  <link rel="stylesheet" href="css/style.css" />
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🐤</text></svg>" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="description" content="Chirp — a polished Flappy Bird-style arcade game with power-ups, particles, and juice. Tap or press Space to flap!" />
+  <meta property="og:title" content="Chirp" />
+  <meta property="og:description" content="Flap, collect coins & power-ups, beat your high score." />
+  <title>Chirp</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🐦</text></svg>" />
+  <style>
+    :root {
+      --sky: #7ec8ff;
+      --ink: #1a2744;
+      --panel: rgba(15, 23, 42, 0.78);
+      --panel-border: rgba(255, 255, 255, 0.14);
+      --accent: #ffd24a;
+      --good: #5eead4;
+      --danger: #fb7185;
+      --safe: #8ec5ff;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html, body {
+      height: 100%;
+      overflow: hidden;
+      background: #0b1220;
+      font-family: "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, Roboto, sans-serif;
+      color: #f8fafc;
+      -webkit-tap-highlight-color: transparent;
+      touch-action: none;
+      user-select: none;
+    }
+
+    body {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100dvh;
+    }
+
+    #wrap {
+      position: relative;
+      width: min(100vw, calc(100dvh * 9 / 16), 480px);
+      height: 100dvh;
+      max-height: 100dvh;
+      overflow: hidden;
+      background: var(--sky);
+      box-shadow: 0 0 0 1px rgba(255,255,255,0.06), 0 25px 80px rgba(0,0,0,0.55);
+    }
+
+    canvas {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      display: block;
+      touch-action: none;
+    }
+
+    /* ---------- HUD overlay ---------- */
+    #hud {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      z-index: 10;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .top-bar {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      padding: max(12px, env(safe-area-inset-top)) 14px 0;
+      gap: 8px;
+    }
+
+    .score-block {
+      text-align: center;
+      flex: 1;
+      text-shadow: 0 2px 0 rgba(0,0,0,0.25), 0 4px 12px rgba(0,0,0,0.35);
+    }
+
+    .score-num {
+      font-size: clamp(2.4rem, 10vw, 3.4rem);
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      line-height: 1;
+    }
+
+    .score-sub {
+      font-size: 0.78rem;
+      opacity: 0.85;
+      margin-top: 2px;
+      font-weight: 600;
+    }
+
+    .icon-btn {
+      pointer-events: auto;
+      width: 42px;
+      height: 42px;
+      border-radius: 12px;
+      border: 1px solid var(--panel-border);
+      background: var(--panel);
+      color: #fff;
+      display: grid;
+      place-items: center;
+      cursor: pointer;
+      backdrop-filter: blur(10px);
+      transition: transform 0.12s, background 0.12s;
+    }
+    .icon-btn:active { transform: scale(0.92); }
+    .icon-btn svg { width: 20px; height: 20px; }
+
+    .power-row {
+      display: flex;
+      justify-content: center;
+      gap: 10px;
+      margin-top: 10px;
+      min-height: 28px;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 4px 10px;
+      border-radius: 999px;
+      font-size: 0.75rem;
+      font-weight: 700;
+      background: rgba(0,0,0,0.35);
+      border: 1px solid rgba(255,255,255,0.12);
+      backdrop-filter: blur(6px);
+    }
+    .pill.shield { color: var(--safe); }
+    .pill.boost { color: var(--accent); }
+    .pill.wing { color: #fde68a; }
+    .pill.coins { color: var(--accent); }
+
+    .meter-track {
+      width: 56%;
+      max-width: 180px;
+      height: 6px;
+      margin: 8px auto 0;
+      border-radius: 99px;
+      background: rgba(0,0,0,0.3);
+      overflow: hidden;
+    }
+    .meter-fill {
+      height: 100%;
+      width: 0%;
+      border-radius: inherit;
+      background: linear-gradient(90deg, #5eead4, #ffd24a);
+      transition: width 0.08s linear;
+    }
+
+    /* ---------- Center panels ---------- */
+    .panel {
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      transform: translate(-50%, -50%);
+      width: min(86%, 340px);
+      background: var(--panel);
+      border: 1px solid var(--panel-border);
+      border-radius: 22px;
+      padding: 22px 20px 18px;
+      text-align: center;
+      pointer-events: auto;
+      backdrop-filter: blur(16px);
+      box-shadow: 0 20px 50px rgba(0,0,0,0.45);
+      animation: popIn 0.28s cubic-bezier(0.22, 1.2, 0.36, 1) both;
+    }
+
+    @keyframes popIn {
+      from { opacity: 0; transform: translate(-50%, -46%) scale(0.92); }
+      to   { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+    }
+
+    .panel h1 {
+      font-size: 2.1rem;
+      font-weight: 900;
+      letter-spacing: -0.03em;
+      margin-bottom: 4px;
+    }
+
+    .panel .tagline {
+      font-size: 0.9rem;
+      opacity: 0.8;
+      margin-bottom: 18px;
+    }
+
+    .panel .big-score {
+      font-size: 3.2rem;
+      font-weight: 900;
+      line-height: 1;
+      margin: 6px 0 2px;
+    }
+
+    .panel .best-line {
+      font-size: 0.9rem;
+      opacity: 0.85;
+      margin-bottom: 14px;
+    }
+
+    .new-best {
+      display: inline-block;
+      background: linear-gradient(90deg, #fbbf24, #f59e0b);
+      color: #1a1200;
+      font-weight: 800;
+      font-size: 0.72rem;
+      padding: 3px 10px;
+      border-radius: 999px;
+      margin-bottom: 10px;
+      letter-spacing: 0.04em;
+    }
+
+    .btn-row {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      margin-top: 6px;
+    }
+
+    .btn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      height: 48px;
+      border-radius: 14px;
+      border: none;
+      font-size: 1rem;
+      font-weight: 700;
+      cursor: pointer;
+      transition: transform 0.12s, filter 0.12s;
+    }
+    .btn:active { transform: scale(0.97); }
+    .btn-primary {
+      background: linear-gradient(180deg, #ffd24a, #f59e0b);
+      color: #1a1200;
+      box-shadow: 0 4px 0 #c2410c, 0 8px 20px rgba(245, 158, 11, 0.35);
+    }
+    .btn-secondary {
+      background: rgba(255,255,255,0.1);
+      color: #fff;
+      border: 1px solid rgba(255,255,255,0.15);
+    }
+
+    .hint {
+      position: absolute;
+      left: 50%;
+      bottom: 22%;
+      transform: translateX(-50%);
+      font-size: 0.95rem;
+      font-weight: 600;
+      opacity: 0.9;
+      text-shadow: 0 2px 8px rgba(0,0,0,0.5);
+      animation: pulse 1.4s ease-in-out infinite;
+      pointer-events: none;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 0.55; transform: translateX(-50%) translateY(0); }
+      50% { opacity: 1; transform: translateX(-50%) translateY(-4px); }
+    }
+
+    /* Settings sheet */
+    .settings {
+      position: absolute;
+      inset: 0;
+      background: rgba(8, 12, 24, 0.72);
+      z-index: 30;
+      display: flex;
+      align-items: flex-end;
+      justify-content: center;
+      pointer-events: auto;
+      animation: fadeIn 0.2s ease both;
+    }
+    @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+    .settings-sheet {
+      width: 100%;
+      max-width: 480px;
+      background: #111827;
+      border-radius: 20px 20px 0 0;
+      padding: 18px 18px max(22px, env(safe-area-inset-bottom));
+      border-top: 1px solid rgba(255,255,255,0.1);
+      animation: slideUp 0.28s cubic-bezier(0.22, 1, 0.36, 1) both;
+    }
+    @keyframes slideUp {
+      from { transform: translateY(40px); opacity: 0; }
+      to   { transform: translateY(0); opacity: 1; }
+    }
+
+    .settings-sheet h2 {
+      font-size: 1.15rem;
+      margin-bottom: 14px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .toggle-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 4px;
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+      font-size: 0.95rem;
+    }
+
+    .toggle {
+      width: 48px;
+      height: 28px;
+      border-radius: 99px;
+      background: #334155;
+      position: relative;
+      cursor: pointer;
+      transition: background 0.2s;
+      border: none;
+    }
+    .toggle.on { background: #22c55e; }
+    .toggle::after {
+      content: "";
+      position: absolute;
+      width: 22px;
+      height: 22px;
+      border-radius: 50%;
+      background: #fff;
+      top: 3px;
+      left: 3px;
+      transition: transform 0.2s;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.3);
+    }
+    .toggle.on::after { transform: translateX(20px); }
+
+    .footer-note {
+      text-align: center;
+      font-size: 0.72rem;
+      opacity: 0.45;
+      margin-top: 16px;
+    }
+
+    .hidden { display: none !important; }
+
+    /* Reduced motion */
+    @media (prefers-reduced-motion: reduce) {
+      .panel, .settings-sheet, .hint { animation: none !important; }
+    }
+  </style>
 </head>
 <body>
-  <div id="game-container">
-    <canvas id="gameCanvas"></canvas>
+  <div id="wrap">
+    <canvas id="c" aria-label="Chirp game"></canvas>
 
-    <!-- HUD -->
     <div id="hud">
-      <div id="score-display">0</div>
-      <div id="best-display">BEST <span id="best-score">0</span></div>
-    </div>
-
-    <!-- Start / Tutorial overlay -->
-    <div id="start-screen" class="overlay">
-      <div class="panel">
-        <div class="bird-preview">🐤</div>
-        <h1>Flappy Bird</h1>
-        <p class="subtitle">2025 Edition</p>
-        <p class="instruction">Tap anywhere to flap</p>
-        <button id="start-btn" class="btn primary">PLAY</button>
-        <p class="hint">One-handed • Endless • Addictive</p>
-      </div>
-    </div>
-
-    <!-- Game Over overlay -->
-    <div id="gameover-screen" class="overlay hidden">
-      <div class="panel">
-        <h2>Game Over</h2>
-        <div class="final-score">
-          <span class="label">Score</span>
-          <span id="final-score">0</span>
+      <!-- Top HUD (playing / ready / pause) -->
+      <div id="topHud" class="top-bar hidden">
+        <button class="icon-btn" id="btnPause" title="Pause (Esc)" aria-label="Pause">
+          <svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>
+        </button>
+        <div class="score-block">
+          <div class="score-num" id="scoreNum">0</div>
+          <div class="score-sub">Best <span id="bestNum">0</span></div>
+          <div class="power-row" id="powerRow"></div>
+          <div class="meter-track"><div class="meter-fill" id="meterFill"></div></div>
         </div>
-        <div class="final-best">
-          <span class="label">Best</span>
-          <span id="final-best">0</span>
+        <button class="icon-btn" id="btnMute" title="Mute (M)" aria-label="Mute">
+          <svg id="muteIcon" viewBox="0 0 24 24" fill="currentColor"><path d="M11 5 6 9H2v6h4l5 4V5zm7.07 2.93a8 8 0 0 1 0 8.14"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
+        </button>
+      </div>
+
+      <!-- Hint -->
+      <div id="hint" class="hint hidden">Tap or Space to flap</div>
+
+      <!-- MENU -->
+      <div id="menuPanel" class="panel">
+        <h1>🐦 Chirp</h1>
+        <p class="tagline">Flap · Collect · Survive</p>
+        <div class="btn-row">
+          <button class="btn btn-primary" id="btnPlay">Play</button>
+          <button class="btn btn-secondary" id="btnSettings">Settings</button>
         </div>
-        <button id="restart-btn" class="btn primary">TRY AGAIN</button>
-        <button id="home-btn" class="btn secondary">HOME</button>
+        <p class="footer-note">Best: <span id="menuBest">0</span> · Coins: <span id="menuCoins">0</span></p>
+      </div>
+
+      <!-- PAUSE -->
+      <div id="pausePanel" class="panel hidden">
+        <h1>Paused</h1>
+        <p class="tagline">Take a breath</p>
+        <div class="btn-row">
+          <button class="btn btn-primary" id="btnResume">Resume</button>
+          <button class="btn btn-secondary" id="btnHomeFromPause">Menu</button>
+        </div>
+      </div>
+
+      <!-- DEAD / GAME OVER -->
+      <div id="deadPanel" class="panel hidden">
+        <div id="newBestBadge" class="new-best hidden">NEW BEST</div>
+        <h1>Game Over</h1>
+        <div class="big-score" id="deadScore">0</div>
+        <p class="best-line">Best <span id="deadBest">0</span> · +<span id="deadCoins">0</span> coins</p>
+        <div class="btn-row">
+          <button class="btn btn-primary" id="btnRetry">Play Again</button>
+          <button class="btn btn-secondary" id="btnHomeFromDead">Menu</button>
+        </div>
       </div>
     </div>
 
-    <!-- Pause overlay -->
-    <div id="pause-screen" class="overlay hidden">
-      <div class="panel">
-        <h2>Paused</h2>
-        <button id="resume-btn" class="btn primary">RESUME</button>
-        <button id="pause-home-btn" class="btn secondary">HOME</button>
+    <!-- Settings overlay -->
+    <div id="settings" class="settings hidden">
+      <div class="settings-sheet">
+        <h2>
+          Settings
+          <button class="icon-btn" id="btnCloseSettings" style="width:36px;height:36px" aria-label="Close">
+            <svg viewBox="0 0 24 24" fill="currentColor" width="18" height="18"><path d="M18.3 5.7 12 12l6.3 6.3-1.4 1.4L10.6 13.4 4.3 19.7 2.9 18.3 9.2 12 2.9 5.7 4.3 4.3l6.3 6.3 6.3-6.3z"/></svg>
+          </button>
+        </h2>
+        <div class="toggle-row">
+          <span>Sound</span>
+          <button class="toggle" id="togMute" aria-label="Toggle sound"></button>
+        </div>
+        <div class="toggle-row">
+          <span>Haptics</span>
+          <button class="toggle on" id="togHaptics" aria-label="Toggle haptics"></button>
+        </div>
+        <div class="toggle-row">
+          <span>Screen shake</span>
+          <button class="toggle on" id="togShake" aria-label="Toggle shake"></button>
+        </div>
+        <p class="footer-note">Controls: Space / ↑ / W / Tap · Esc / P pause · M mute</p>
       </div>
     </div>
-
-    <!-- Pause button (visible during play) -->
-    <button id="pause-btn" class="icon-btn hidden" aria-label="Pause">❚❚</button>
   </div>
 
-  <script src="js/game.js"></script>
+  <script src="game.js"></script>
 </body>
 </html>
